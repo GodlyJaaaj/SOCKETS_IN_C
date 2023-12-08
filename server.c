@@ -43,9 +43,10 @@ void *handle_client(void *data)
     client_s *client = data;
     char buffer[CLIENT_BUFFER] = {0};
     while (1) {
-        ssize_t n = recv(client->fd_socket, buffer, CLIENT_BUFFER,
-            MSG_DONTWAIT); // -1 0
+        ssize_t n = recv(client->fd_socket, buffer, CLIENT_BUFFER, 0); // -1 0
         if (n == 0) {
+            printf("Client n%d ip:%s disconnected\n", client->id,
+                inet_ntoa(client->address.sin_addr));
             int temp_id = client->id;
             free((client_s *) client->data);
             memset(client, 0, sizeof(client_s));
