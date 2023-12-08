@@ -1,5 +1,6 @@
 #pragma once
-    #define MAX_CLIENTS 10
+    #define MAX_CLIENTS 1000
+
 
 int PORT;
 
