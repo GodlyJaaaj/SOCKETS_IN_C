@@ -1,8 +1,12 @@
 #pragma once
     #define CLIENT_BUFFER 1024
     #include "ncurses.h"
+    #include <time.h>
+    #define FRAME_TIME_MS (1000 / FPS)
 
 char *SERVER_IP;
+struct timespec g_start_time;
+int FPS;
 
 struct player {
     int id;
