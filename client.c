@@ -2,6 +2,22 @@
 #include "client.h"
 #include "server.h"
 
+void start_frame() {
+    clock_gettime(CLOCK_MONOTONIC, &g_start_time);
+}
+
+double end_frame() {
+    struct timespec end_time;
+    clock_gettime(CLOCK_MONOTONIC, &end_time);
+    double elapsed = (end_time.tv_sec - g_start_time.tv_sec) + (end_time.tv_nsec - g_start_time.tv_nsec) / 1e9; // in seconds
+    return 1.0 / elapsed; // framerate
+}
+
+void print_fps(int y, int x) {
+    double fps = end_frame();
+    start_frame();
+    mvprintw(y, x, "FPS: %f", fps);
+}
 
 void send_data_to_server(int sock, void *data, size_t size)
 {
@@ -98,7 +114,7 @@ void *error_corrector(void *data)
     game_s *game = data;
     while (1) {
         send_data_to_server(game->serv_sock, game->player, sizeof(player_s));
-        usleep(10000);
+        usleep(100000);
     }
 }
 
@@ -188,6 +204,10 @@ int client_loop(void)
 
     int key = ERR;
     while(game.is_connected) {
+
+        struct timespec start, end;
+        clock_gettime(CLOCK_MONOTONIC, &start);
+
         key = getch();
         if (key != ERR) {
             move_player(game.player, key);
@@ -196,8 +216,15 @@ int client_loop(void)
         erase();
         print_all_players(&game);
         print_player(game.player);
+        print_fps(0, 0);
         refresh();
 
+        clock_gettime(CLOCK_MONOTONIC, &end);
+        double elapsed = (end.tv_sec - start.tv_sec) * 1e3 + (end.tv_nsec - start.tv_nsec) / 1e6; // in milliseconds
+
+        if (elapsed < FRAME_TIME_MS) {
+            usleep((FRAME_TIME_MS - elapsed) * 1000); // usleep takes microseconds
+        }
     }
     perror("Connection lost or server closed");
     return 0;
@@ -205,11 +232,18 @@ int client_loop(void)
 
 int main(int argc, char **argv)
 {
-    if (argc != 3) {
-        printf("Usage: %s <ip> <port>\n", argv[0]);
+    if (argc != 4) {
+        printf("Usage: %s <ip> <port> <FRAMERATE>\n", argv[0]);
         exit(84);
     }
     SERVER_IP = argv[1];
     PORT = atoi(argv[2]);
+    FPS = atoi(argv[3]);
+
+    if (FPS <= 0) {
+        printf("FPS must be > 0\n");
+        exit(84);
+    }
+
     return client_loop();
 }
