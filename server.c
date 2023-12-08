@@ -3,6 +3,17 @@
 #include "client.h"
 
 client_s clients[MAX_CLIENTS];
+map_s map;
+
+void init_map()
+{
+    for (int i = 0; i < MAP_SIZE; i++) {
+        for (int j = 0; j < MAP_SIZE - 1; ++j) {
+            map.map[i][j] = 'a';
+        }
+        map.map[i][MAP_SIZE - 1] = '\0';
+    }
+}
 
 void init_client_s_struct(int max_clients, client_s clients[max_clients])
 {
@@ -42,6 +53,8 @@ void *handle_client(void *data)
 {
     client_s *client = data;
     char buffer[CLIENT_BUFFER] = {0};
+    player_s *player = NULL;
+
     while (1) {
         ssize_t n = recv(client->fd_socket, buffer, CLIENT_BUFFER, 0); // -1 0
         if (n == 0) {
@@ -54,23 +67,35 @@ void *handle_client(void *data)
             break;
         }
         if (n > 0) {
-            player_s *player = (player_s *) client->data;
-            memcpy(player, buffer, sizeof(player_s));
-            for (int i = 0; i < MAX_CLIENTS; i++) {
-                if (clients[i].is_use && player->id == clients[i].id) {
-                    memcpy(clients[i].data, player, sizeof(player_s));
-                }
+            switch (buffer[0]) {
+                case PLAYER_PACKET:
+                    player = (player_s *) client->data;
+                    memcpy(player, buffer + 1, sizeof(player_s));
+                    for (int i = 0; i < MAX_CLIENTS; i++) {
+                        if (clients[i].is_use && player->id == clients[i].id) {
+                            memcpy(clients[i].data, player, sizeof(player_s));
+                        }
+                    }
+                    break;
+                default:
+                    break;
             }
         }
     }
     return NULL;
 }
 
+void send_packet(int sock, void *data, size_t size, char packet_type) {
+    char buffer[CLIENT_BUFFER + 1] = {0};
+    buffer[0] = packet_type;
+    memcpy(buffer + 1, data, size);
+    send(sock, buffer, size + 1, 0);
+}
+
 void *send_all_datas(void *data)
 {
     char buffer[CLIENT_BUFFER] = {0};
     int player_count = 0;
-
     while (1) {
         player_count = 0;
         memset(buffer, 0, CLIENT_BUFFER);
@@ -89,8 +114,8 @@ void *send_all_datas(void *data)
         if (player_count > 0) {
             for (int i = 0; i < MAX_CLIENTS; i++) {
                 if (clients[i].is_use) {
-                    send(clients[i].fd_socket, buffer,
-                        sizeof(player_s) * player_count, 0);
+                    send_packet(clients[i].fd_socket, buffer, sizeof(player_s) * player_count, PLAYER_PACKET);
+                    send_packet(clients[i].fd_socket, &map, sizeof(map_s), MAP_PACKET);
                 }
             }
         }
@@ -136,6 +161,7 @@ int handle_server()
     } else {
         pthread_detach(data_thread);
     }
+
     while (1) {
         //printf("\nWaiting for a connection...\n");
         //mvprintw(0, 0, "Waiting for a connection...\n");
@@ -151,30 +177,25 @@ int handle_server()
             perror("accept");
             exit(EXIT_FAILURE);
         }
-
         int free_socket = find_free_slot(MAX_CLIENTS, clients)->id;
-
         clients[free_socket].fd_socket = temp_fd_socket;
         memcpy(&clients[free_socket].address, &temp_address,
             sizeof(struct sockaddr_in));
-
         client_s *current_client = &clients[free_socket];
         current_client->is_use = 1;
-
         srand(time(NULL));
         //select a random color for the player
         int color = rand() % 7 + 1;
 
         //choose a random character for the player
         char character = rand() % 93 + 33;
-
-        current_client->data = init_player_s_struct(free_socket, 0, 0, character,
+        current_client->data = init_player_s_struct(free_socket, 0, 0,
+            character,
             color);
 
         //FIRST CONNECTION
         send(current_client->fd_socket, (player_s *) current_client->data,
             sizeof(player_s), 0);
-
         pthread_t thread;
         if (pthread_create(&thread, NULL, handle_client,
             (void *) current_client) != 0) {
@@ -205,6 +226,7 @@ int main(int argc, char *argv[])
         printf("Usage: %s <port>\n", argv[0]);
         exit(84);
     }
+    init_map();
     PORT = atoi(argv[1]);
     init_client_s_struct(MAX_CLIENTS, clients);
     handle_server();

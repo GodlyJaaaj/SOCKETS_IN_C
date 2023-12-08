@@ -2,6 +2,13 @@
 #include "client.h"
 #include "server.h"
 
+void send_packet(int sock, void *data, size_t size, char packet_type) {
+    char buffer[CLIENT_BUFFER + 1] = {0};
+    buffer[0] = packet_type;
+    memcpy(buffer + 1, data, size);
+    send(sock, buffer, size + 1, 0);
+}
+
 void start_frame() {
     clock_gettime(CLOCK_MONOTONIC, &g_start_time);
 }
@@ -19,10 +26,10 @@ void print_fps(int y, int x) {
     mvprintw(y, x, "FPS: %f", fps);
 }
 
-void send_data_to_server(int sock, void *data, size_t size)
-{
-    send(sock, data, size, 0);
-}
+//void send_data_to_server(int sock, void *data, size_t size)
+//{
+//    send(sock, data, size, 0);
+//}
 
 player_s *init_player_s_struct(int id, int pos_y, int pos_x, char character, int color)
 {
@@ -42,19 +49,29 @@ player_s *init_player_s_struct(int id, int pos_y, int pos_x, char character, int
 
 void *get_data_from_server(void *data)
 {
+    char buffer[CLIENT_BUFFER] = {0};
     game_s *game = data;
     size_t n;
 
     while (1) {
-        n = recv(game->serv_sock, game->data, CLIENT_BUFFER, 0);
+        n = recv(game->serv_sock, buffer, CLIENT_BUFFER, 0);
         if (n <= 0) {
             if (n == -1) {
                 perror("recv");
             }
             break;
         }
-        game->data[n] = 0;
-        game->nb_players = n / sizeof(player_s);
+        switch (buffer[0]) {
+            case MAP_PACKET:
+                memcpy(game->map, buffer + 1, sizeof(map_s));
+                break;
+            case PLAYER_PACKET:
+                memcpy(game->data, buffer + 1, CLIENT_BUFFER - 1);
+                game->nb_players = n / (sizeof(player_s) - 1);
+                break;
+            default:
+                break;
+        }
     }
     game->is_connected = 0;
 }
@@ -107,13 +124,15 @@ void init_pairs()
     init_pair(6, COLOR_CYAN, -1);
     init_pair(7, COLOR_WHITE, -1);
     init_pair(8, COLOR_BLACK, -1);
+    //init_pair(9, -1, -1);
 }
 
 void *error_corrector(void *data)
 {
     game_s *game = data;
     while (1) {
-        send_data_to_server(game->serv_sock, game->player, sizeof(player_s));
+        //send_data_to_server(game->serv_sock, game->player, sizeof(player_s));
+        send_packet(game->serv_sock, game->player, sizeof(player_s), PLAYER_PACKET);
         usleep(100000);
     }
 }
@@ -144,7 +163,7 @@ int etablish_connection(int *dest_sock, player_s **dest_player)
     }
 
     //FIRST CONNECTION
-    player_s *player = init_player_s_struct(0, 0, 0, 0, 0);
+    player_s *player = init_player_s_struct(0, 0,  0, 0, 0);
 
     recv(sock, (player_s *) player, sizeof(player_s), 0);
 
@@ -171,6 +190,13 @@ void init_ncurses(void)
     use_default_colors();
     init_pairs();
     wbkgd(stdscr, COLOR_PAIR(1));
+}
+
+void print_map(char map[MAP_SIZE][MAP_SIZE])
+{
+    for (int i = 0; i < 32; ++i) {
+        mvprintw(i + 4, 0, "%s", map[i]);
+    }
 }
 
 int client_loop(void)
@@ -211,9 +237,11 @@ int client_loop(void)
         key = getch();
         if (key != ERR) {
             move_player(game.player, key);
-            send_data_to_server(game.serv_sock, game.player, sizeof(player_s));
+            //send_data_to_server(game.serv_sock, game.player, sizeof(player_s));
+            send_packet(game.serv_sock, game.player, sizeof(player_s), PLAYER_PACKET);
         }
         erase();
+        print_map(game.map);
         print_all_players(&game);
         print_player(game.player);
         print_fps(0, 0);
@@ -236,6 +264,7 @@ int main(int argc, char **argv)
         printf("Usage: %s <ip> <port> <FRAMERATE>\n", argv[0]);
         exit(84);
     }
+
     SERVER_IP = argv[1];
     PORT = atoi(argv[2]);
     FPS = atoi(argv[3]);
